@@ -1,0 +1,32 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: dangvien-api
+  datasource:
+    url: jdbc:oracle:thin:@//localhost:1521/FREEPDB1
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:admin}
+    driver-class-name: oracle.jdbc.OracleDriver
+  jpa:
+    # Dung 'validate' vi bang da duoc tao thu cong bang script DDL (xem db/ddl_ds_dang_vien_new.sql)
+    # Doi thanh 'update' khi dev cuc bo neu muon Hibernate tu sinh bang
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+# Cau hinh rieng cho API dong-bo dang vien
+app:
+  dangvien:
+    # Token TINH do BHXH cap cho VPTWD - nen override qua bien moi truong khi trien khai that
+    token: ${DANGVIEN_API_TOKEN:33bdfccc-9046-488a-b2f0-2e503df74b1e}
+    # So ban ghi toi da trong data[] moi lan goi (theo muc 4 tai lieu, co the dieu chinh)
+    max-records: ${DANGVIEN_MAX_RECORDS:1000}
+
+logging:
+  level:
+    vn.gov.bhxh.dangvien: DEBUG
