@@ -17,7 +17,6 @@ import vn.gov.bhxh.dangvien.dto.request.DangVienItemRequest;
 import vn.gov.bhxh.dangvien.dto.request.DongBoMoiRequest;
 import vn.gov.bhxh.dangvien.dto.response.DongBoMoiResponse;
 import vn.gov.bhxh.dangvien.dto.response.ResultItemResponse;
-import vn.gov.bhxh.dangvien.entity.DangVienNew;
 import vn.gov.bhxh.dangvien.exception.ApiException;
 import vn.gov.bhxh.dangvien.repository.DangVienNewRepository;
 
@@ -53,7 +52,6 @@ public class DangVienService {
         }
 
         List<ResultItemResponse> results = new ArrayList<>(request.getData().size());
-        List<DangVienNew> toSave = new ArrayList<>();
         Set<String> seenInBatch = new HashSet<>();
 
         int accepted = 0;
@@ -88,29 +86,26 @@ public class DangVienService {
                 continue;
             }
 
-            // socccd da ton tai trong DS_DANG_VIEN_NEW -> khong tao them
-            if (repository.existsBySocccd(socccd)) {
+            // Thuc hien atomic MERGE INTO:
+            // - Tra ve 1: them moi thanh cong (ACCEPTED)
+            // - Tra ve 0: CCCD da ton tai tu truoc (EXISTING)
+            int rowsAffected = repository.mergeDangVien(
+                    request.getBatchId(),
+                    request.getNgayCapNhat(),
+                    socccd,
+                    item.getHoten(),
+                    ngaySinh,
+                    item.getGioitinh()
+            );
+
+            if (rowsAffected == 1) {
+                results.add(new ResultItemResponse(socccd, "ACCEPTED", null, "Da tao ho so moi thanh cong"));
+                accepted++;
+            } else {
                 results.add(new ResultItemResponse(socccd, "EXISTING", "ALREADY_EXISTS",
                         "socccd da ton tai, he thong khong tao them ban ghi"));
                 existing++;
-                continue;
             }
-
-            toSave.add(DangVienNew.builder()
-                    .batchId(request.getBatchId())
-                    .ngayCapNhat(request.getNgayCapNhat())
-                    .socccd(socccd)
-                    .hoten(item.getHoten())
-                    .ngaySinh(ngaySinh)
-                    .gioiTinh(item.getGioitinh())
-                    .build());
-
-            results.add(new ResultItemResponse(socccd, "ACCEPTED", null, "Da tao ho so moi thanh cong"));
-            accepted++;
-        }
-
-        if (!toSave.isEmpty()) {
-            repository.saveAll(toSave);
         }
 
         return DongBoMoiResponse.builder()

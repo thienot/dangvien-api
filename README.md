@@ -16,7 +16,7 @@ Sửa trong `application.yml` hoặc set biến môi trường:
 
 | Biến | Ý nghĩa | Mặc định |
 |---|---|---|
-| `DB_USERNAME` / `DB_PASSWORD` | Tài khoản Oracle | `dangvien_user` / `changeme` |
+| `DB_USERNAME` / `DB_PASSWORD` | Tài khoản Oracle | `admin` / `admin` |
 | `DANGVIEN_API_TOKEN` | Token tĩnh xác thực Bearer | `33bdfccc-9046-488a-b2f0-2e503df74b1e` (token mẫu trong tài liệu) |
 | `DANGVIEN_MAX_RECORDS` | Giới hạn số bản ghi/lần gọi | `1000` |
 
