@@ -12,6 +12,7 @@ import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.format.ResolverStyle;
 
 import vn.gov.bhxh.dangvien.config.AppProperties;
 import vn.gov.bhxh.dangvien.dto.request.DangVienItemRequest;
@@ -27,7 +28,9 @@ import vn.gov.bhxh.dangvien.repository.DangVienNewRepository;
 @Service
 public class DangVienService {
 
-    private static final DateTimeFormatter NGAYSINH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    // Dùng pattern 'uuuu-MM-dd' kết hợp ResolverStyle.STRICT để chặn đứng mọi ngày không có thật trong lịch
+    private static final DateTimeFormatter NGAYSINH_FORMAT = 
+        DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
     private static final int MIN_BIRTH_YEAR = 1900;
 
     private final DangVienNewRepository repository;

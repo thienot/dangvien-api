@@ -9,15 +9,20 @@ spring:
     username: ${DB_USERNAME:admin}
     password: ${DB_PASSWORD:admin}
     driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      pool-name: DangVienHikariPool
+      maximum-pool-size: 20       # Giới hạn tối đa 20 kết nối đồng thời tới Oracle
+      minimum-idle: 5             # Luôn duy trì sẵn 5 kết nối nhàn rỗi để phục vụ ngay
+      idle-timeout: 300000        # 5 phút giải phóng kết nối thừa
+      connection-timeout: 30000  # 30 giây timeout nếu DB bận không cấp kết nối
+      max-lifetime: 1800000      # 30 phút tự hủy và tạo kết nối mới (chống stale connection ở Oracle)
   jpa:
-    # Dung 'validate' vi bang da duoc tao thu cong bang script DDL (xem db/ddl_ds_dang_vien_new.sql)
-    # Doi thanh 'update' khi dev cuc bo neu muon Hibernate tu sinh bang
     hibernate:
       ddl-auto: validate
     open-in-view: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false        # TẮT format SQL trên production để tiết kiệm CPU và I/O đĩa
 
 # Cau hinh rieng cho API dong-bo dang vien
 app:
@@ -30,3 +35,14 @@ app:
 logging:
   level:
     vn.gov.bhxh.dangvien: DEBUG
+
+# Cau hinh Actuator cho giam sat suc khoe he thong tren Production
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+
