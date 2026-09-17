@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,6 +21,7 @@ import vn.gov.bhxh.dangvien.dto.response.ResultItemResponse;
 import vn.gov.bhxh.dangvien.exception.ApiException;
 import vn.gov.bhxh.dangvien.repository.DangVienNewRepository;
 
+@Slf4j
 @Service
 public class DangVienService {
 
@@ -37,8 +39,13 @@ public class DangVienService {
     @Transactional
     public DongBoMoiResponse xuLyDongBoMoi(DongBoMoiRequest request) {
 
+        log.info("[DONG-BO-MOI] Tiep nhan batchId={} | ngayCapNhat={} | tongSoBanGhi={}",
+                request.getBatchId(), request.getNgayCapNhat(), request.getData().size());
+
         // Muc 4: vuot gioi han so ban ghi/lan goi -> 400 INVALID_REQUEST
         if (request.getData().size() > appProperties.getMaxRecords()) {
+            log.warn("[DONG-BO-MOI] Tu choi batchId={} | Ly do: vuot qua gioi han {} ban ghi (gui len: {})",
+                    request.getBatchId(), appProperties.getMaxRecords(), request.getData().size());
             throw new ApiException("INVALID_REQUEST",
                     "So ban ghi trong data[] vuot qua gioi han " + appProperties.getMaxRecords() + " ban ghi/lan goi",
                     400);
@@ -46,6 +53,8 @@ public class DangVienService {
 
         // Muc 4 + 2.1: batch_id da tung duoc tiep nhan -> 409 BATCH_CONFLICT (khong phan biet noi dung lo)
         if (repository.existsByBatchId(request.getBatchId())) {
+            log.warn("[DONG-BO-MOI] Tu choi batchId={} | Ly do: BATCH_CONFLICT - batch_id da tung duoc tiep nhan truoc do",
+                    request.getBatchId());
             throw new ApiException("BATCH_CONFLICT",
                     "batch_id nay da tung duoc tiep nhan truoc do, vui long doi sang batch_id khac roi gui lai",
                     409);
@@ -108,7 +117,9 @@ public class DangVienService {
             }
         }
 
-        return DongBoMoiResponse.builder()
+        String requestId = UUID.randomUUID().toString();
+
+        DongBoMoiResponse response = DongBoMoiResponse.builder()
                 .batchId(request.getBatchId())
                 .status("RECEIVED")
                 .totalRecords(request.getData().size())
@@ -116,9 +127,14 @@ public class DangVienService {
                 .invalidRecords(invalid)
                 .duplicateRecords(duplicate)
                 .existingRecords(existing)
-                .requestId(UUID.randomUUID().toString())
+                .requestId(requestId)
                 .results(results)
                 .build();
+
+        log.info("[DONG-BO-MOI] Hoan thanh batchId={} | requestId={} | tongSo={} | accepted={} | existing={} | duplicate={} | invalid={}",
+                request.getBatchId(), requestId, request.getData().size(), accepted, existing, duplicate, invalid);
+
+        return response;
     }
 
     private LocalDate parseNgaySinh(String ngaysinh) {
