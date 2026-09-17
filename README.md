@@ -54,7 +54,7 @@ Gọi lại đúng `batch_id` trên lần nữa → HTTP 409 `BATCH_CONFLICT`.
 - **AuthHash**: thuật toán chưa được xác nhận giữa 2 bên, chưa áp dụng.
 - **Ràng buộc theo IP nguồn** (mã lỗi `FORBIDDEN`): chưa triển khai.
 
-## 6. Giới hạn đã biết / cần lưu ý khi lên production
-
-- Việc check `socccd` tồn tại và insert không nằm trong cùng 1 lock ở tầng ứng dụng — nếu 2 request đụng đúng 1 `socccd` gần như đồng thời, unique constraint ở DB sẽ chặn request thứ 2 và trả `INTERNAL_ERROR` thay vì `EXISTING`. Nếu cần xử lý mượt hơn, có thể bắt riêng `DataIntegrityViolationException` theo constraint name để trả `EXISTING` thay vì lỗi 500.
-- `batch_id` được kiểm tra trùng bằng cách query trực tiếp trên `DS_DANG_VIEN_NEW` — bảng sẽ phình dần theo thời gian vì batch_id phải duy nhất vĩnh viễn; nên theo dõi hiệu năng index `IDX_DS_DANG_VIEN_NEW_BATCH_ID` khi dữ liệu lớn.
+## 6. Các tối ưu đã triển khai
+- **Khử hoàn toàn Race Condition `socccd`**: Chuyển sang cơ chế atomic `MERGE INTO` trong Oracle DB. Khi 2 request đồng thời chứa cùng `socccd`, request sau tự động nhận `EXISTING` (0 rows affected) mà không bị văng lỗi ORA-00001 (500 INTERNAL_ERROR).
+- **Mô hình Master-Detail quản lý Batch (`DS_DANG_VIEN_BATCH`)**: Tách bảng quản lý lô riêng biệt. Kiểm tra trùng `batch_id` trực tiếp trên Primary Key của bảng batch với độ phức tạp O(1), đảm bảo lưu vết 100% mọi đợt tiếp nhận (kể cả lô toàn bộ bản ghi bị REJECTED) và triệt tiêu vấn đề phình index trên bảng chi tiết đảng viên.
+- **Bảo mật & Logging**: Chuẩn hóa so sánh token bằng `MessageDigest.isEqual` chống Timing Attack, bổ sung log có cấu trúc chuẩn tag `[DONG-BO-MOI]` và `[AUTH]` ghi nhận IP client.

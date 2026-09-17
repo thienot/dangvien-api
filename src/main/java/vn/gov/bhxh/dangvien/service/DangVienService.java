@@ -18,7 +18,9 @@ import vn.gov.bhxh.dangvien.dto.request.DangVienItemRequest;
 import vn.gov.bhxh.dangvien.dto.request.DongBoMoiRequest;
 import vn.gov.bhxh.dangvien.dto.response.DongBoMoiResponse;
 import vn.gov.bhxh.dangvien.dto.response.ResultItemResponse;
+import vn.gov.bhxh.dangvien.entity.DangVienBatch;
 import vn.gov.bhxh.dangvien.exception.ApiException;
+import vn.gov.bhxh.dangvien.repository.DangVienBatchRepository;
 import vn.gov.bhxh.dangvien.repository.DangVienNewRepository;
 
 @Slf4j
@@ -29,10 +31,14 @@ public class DangVienService {
     private static final int MIN_BIRTH_YEAR = 1900;
 
     private final DangVienNewRepository repository;
+    private final DangVienBatchRepository batchRepository;
     private final AppProperties appProperties;
 
-    public DangVienService(DangVienNewRepository repository, AppProperties appProperties) {
+    public DangVienService(DangVienNewRepository repository,
+                           DangVienBatchRepository batchRepository,
+                           AppProperties appProperties) {
         this.repository = repository;
+        this.batchRepository = batchRepository;
         this.appProperties = appProperties;
     }
 
@@ -51,8 +57,8 @@ public class DangVienService {
                     400);
         }
 
-        // Muc 4 + 2.1: batch_id da tung duoc tiep nhan -> 409 BATCH_CONFLICT (khong phan biet noi dung lo)
-        if (repository.existsByBatchId(request.getBatchId())) {
+        // Kiem tra tren bang master DS_DANG_VIEN_BATCH -> O(1) theo PK, khong lo mat dau batch
+        if (batchRepository.existsById(request.getBatchId())) {
             log.warn("[DONG-BO-MOI] Tu choi batchId={} | Ly do: BATCH_CONFLICT - batch_id da tung duoc tiep nhan truoc do",
                     request.getBatchId());
             throw new ApiException("BATCH_CONFLICT",
@@ -130,6 +136,20 @@ public class DangVienService {
                 .requestId(requestId)
                 .results(results)
                 .build();
+
+        // Luu thong tin lo vao bang master DS_DANG_VIEN_BATCH
+        DangVienBatch batch = DangVienBatch.builder()
+                .batchId(request.getBatchId())
+                .ngayCapNhat(request.getNgayCapNhat())
+                .requestId(requestId)
+                .status("RECEIVED")
+                .totalRecords(request.getData().size())
+                .acceptedRecords(accepted)
+                .invalidRecords(invalid)
+                .duplicateRecords(duplicate)
+                .existingRecords(existing)
+                .build();
+        batchRepository.save(batch);
 
         log.info("[DONG-BO-MOI] Hoan thanh batchId={} | requestId={} | tongSo={} | accepted={} | existing={} | duplicate={} | invalid={}",
                 request.getBatchId(), requestId, request.getData().size(), accepted, existing, duplicate, invalid);
