@@ -40,9 +40,6 @@ public class DangVienNew {
     @Column(name = "BATCH_ID", nullable = false, length = 100)
     private String batchId;
 
-    @Column(name = "NGAY_CAP_NHAT", nullable = false)
-    private OffsetDateTime ngayCapNhat;
-
     @Column(name = "SOCCCD", nullable = false, unique = true, length = 12)
     private String socccd;
 

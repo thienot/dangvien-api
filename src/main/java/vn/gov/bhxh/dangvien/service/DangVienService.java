@@ -66,6 +66,22 @@ public class DangVienService {
                     409);
         }
 
+        String requestId = UUID.randomUUID().toString();
+
+        // Luu truoc ban ghi Batch voi trang thai PROCESSING de thoa man khoa ngoai FK_DS_DANG_VIEN_NEW_BATCH
+        DangVienBatch batch = DangVienBatch.builder()
+                .batchId(request.getBatchId())
+                .ngayCapNhat(request.getNgayCapNhat())
+                .requestId(requestId)
+                .status("PROCESSING")
+                .totalRecords(request.getData().size())
+                .acceptedRecords(0)
+                .invalidRecords(0)
+                .duplicateRecords(0)
+                .existingRecords(0)
+                .build();
+        batchRepository.saveAndFlush(batch);
+
         List<ResultItemResponse> results = new ArrayList<>(request.getData().size());
         Set<String> seenInBatch = new HashSet<>();
 
@@ -101,12 +117,11 @@ public class DangVienService {
                 continue;
             }
 
-            // Thuc hien atomic MERGE INTO:
+            // Thuc hien atomic MERGE INTO (bang con DS_DANG_VIEN_NEW da co FK tro ve DS_DANG_VIEN_BATCH):
             // - Tra ve 1: them moi thanh cong (ACCEPTED)
             // - Tra ve 0: CCCD da ton tai tu truoc (EXISTING)
             int rowsAffected = repository.mergeDangVien(
                     request.getBatchId(),
-                    request.getNgayCapNhat(),
                     socccd,
                     item.getHoten(),
                     ngaySinh,
@@ -123,7 +138,13 @@ public class DangVienService {
             }
         }
 
-        String requestId = UUID.randomUUID().toString();
+        // Cap nhat so lieu thong ke va trang thai RECEIVED cho ban ghi Batch
+        batch.setAcceptedRecords(accepted);
+        batch.setInvalidRecords(invalid);
+        batch.setDuplicateRecords(duplicate);
+        batch.setExistingRecords(existing);
+        batch.setStatus("RECEIVED");
+        batchRepository.save(batch);
 
         DongBoMoiResponse response = DongBoMoiResponse.builder()
                 .batchId(request.getBatchId())
@@ -136,20 +157,6 @@ public class DangVienService {
                 .requestId(requestId)
                 .results(results)
                 .build();
-
-        // Luu thong tin lo vao bang master DS_DANG_VIEN_BATCH
-        DangVienBatch batch = DangVienBatch.builder()
-                .batchId(request.getBatchId())
-                .ngayCapNhat(request.getNgayCapNhat())
-                .requestId(requestId)
-                .status("RECEIVED")
-                .totalRecords(request.getData().size())
-                .acceptedRecords(accepted)
-                .invalidRecords(invalid)
-                .duplicateRecords(duplicate)
-                .existingRecords(existing)
-                .build();
-        batchRepository.save(batch);
 
         log.info("[DONG-BO-MOI] Hoan thanh batchId={} | requestId={} | tongSo={} | accepted={} | existing={} | duplicate={} | invalid={}",
                 request.getBatchId(), requestId, request.getData().size(), accepted, existing, duplicate, invalid);
