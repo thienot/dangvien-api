@@ -3,6 +3,7 @@ package vn.gov.bhxh.dangvien.service;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -10,9 +11,8 @@ import java.util.Set;
 import java.util.UUID;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-import java.time.format.ResolverStyle;
 
 import vn.gov.bhxh.dangvien.config.AppProperties;
 import vn.gov.bhxh.dangvien.dto.request.DangVienItemRequest;
@@ -22,7 +22,6 @@ import vn.gov.bhxh.dangvien.dto.response.ResultItemResponse;
 import vn.gov.bhxh.dangvien.entity.DangVienBatch;
 import vn.gov.bhxh.dangvien.exception.ApiException;
 import vn.gov.bhxh.dangvien.repository.DangVienBatchRepository;
-import vn.gov.bhxh.dangvien.repository.DangVienNewRepository;
 
 @Slf4j
 @Service
@@ -33,19 +32,18 @@ public class DangVienService {
         DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
     private static final int MIN_BIRTH_YEAR = 1900;
 
-    private final DangVienNewRepository repository;
     private final DangVienBatchRepository batchRepository;
+    private final DangVienPersistenceService persistenceService;
     private final AppProperties appProperties;
 
-    public DangVienService(DangVienNewRepository repository,
-                           DangVienBatchRepository batchRepository,
+    public DangVienService(DangVienBatchRepository batchRepository,
+                           DangVienPersistenceService persistenceService,
                            AppProperties appProperties) {
-        this.repository = repository;
         this.batchRepository = batchRepository;
+        this.persistenceService = persistenceService;
         this.appProperties = appProperties;
     }
 
-    @Transactional
     public DongBoMoiResponse xuLyDongBoMoi(DongBoMoiRequest request) {
 
         log.info("[DONG-BO-MOI] Tiep nhan batchId={} | ngayCapNhat={} | tongSoBanGhi={}",
@@ -93,6 +91,7 @@ public class DangVienService {
         int invalid = 0;
         int duplicate = 0;
         int existing = 0;
+        int mergeError = 0;
 
         for (DangVienItemRequest item : request.getData()) {
             String socccd = item.getSocccd();
@@ -121,30 +120,43 @@ public class DangVienService {
                 continue;
             }
 
-            // Thuc hien atomic MERGE INTO (bang con DS_DANG_VIEN_NEW truyen khoa ngoai BATCH_ID so nguyen):
+            // Thuc hien atomic MERGE INTO qua service con REQUIRES_NEW:
+            // - Moi ban ghi chay trong transaction doc lap -> loi 1 dong KHONG rollback toan lo
             // - Tra ve 1: them moi thanh cong (ACCEPTED)
             // - Tra ve 0: CCCD da ton tai tu truoc (EXISTING)
-            int rowsAffected = repository.mergeDangVien(
-                    batchIdPk,
-                    socccd,
-                    item.getHoten(),
-                    ngaySinh,
-                    item.getGioitinh()
-            );
+            // - Nem exception: loi hiem gap ORA-00001 (2 session race condition cung socccd chua ton tai)
+            try {
+                int rowsAffected = persistenceService.mergeDangVien(
+                        batchIdPk,
+                        socccd,
+                        item.getHoten(),
+                        ngaySinh,
+                        item.getGioitinh()
+                );
 
-            if (rowsAffected == 1) {
-                results.add(new ResultItemResponse(socccd, "ACCEPTED", null, "Da tao ho so moi thanh cong"));
-                accepted++;
-            } else {
-                results.add(new ResultItemResponse(socccd, "EXISTING", "ALREADY_EXISTS",
-                        "socccd da ton tai, he thong khong tao them ban ghi"));
-                existing++;
+                if (rowsAffected == 1) {
+                    results.add(new ResultItemResponse(socccd, "ACCEPTED", null, "Da tao ho so moi thanh cong"));
+                    accepted++;
+                } else {
+                    results.add(new ResultItemResponse(socccd, "EXISTING", "ALREADY_EXISTS",
+                            "socccd da ton tai, he thong khong tao them ban ghi"));
+                    existing++;
+                }
+            } catch (DataIntegrityViolationException ex) {
+                // Race condition cuc hiem: 2 request dong thoi merge cung socccd chua ton tai
+                // -> ORA-00001. Transaction rieng cua dong nay da bi rollback, log lai va tiep tuc voi dong tiep theo.
+                log.warn("[DONG-BO-MOI] Race-condition ORA-00001 batchId={} socccd={}: {}",
+                        request.getBatchId(), socccd, ex.getMessage());
+                results.add(new ResultItemResponse(socccd, "REJECTED", "MERGE_CONFLICT",
+                        "Xung dot du lieu khi ghi dong thoi, vui long gui lai ban ghi nay"));
+                mergeError++;
             }
         }
 
         // Cap nhat so lieu thong ke va trang thai RECEIVED cho ban ghi Batch
+        // mergeError duoc gop vao invalidRecords de don gian hoa API response
         batch.setAcceptedRecords(accepted);
-        batch.setInvalidRecords(invalid);
+        batch.setInvalidRecords(invalid + mergeError);
         batch.setDuplicateRecords(duplicate);
         batch.setExistingRecords(existing);
         batch.setStatus("RECEIVED");
@@ -162,8 +174,8 @@ public class DangVienService {
                 .results(results)
                 .build();
 
-        log.info("[DONG-BO-MOI] Hoan thanh batchId={} | requestId={} | tongSo={} | accepted={} | existing={} | duplicate={} | invalid={}",
-                request.getBatchId(), requestId, request.getData().size(), accepted, existing, duplicate, invalid);
+        log.info("[DONG-BO-MOI] Hoan thanh batchId={} | requestId={} | tongSo={} | accepted={} | existing={} | duplicate={} | invalid={} | mergeError={}",
+                request.getBatchId(), requestId, request.getData().size(), accepted, existing, duplicate, invalid, mergeError);
 
         return response;
     }
