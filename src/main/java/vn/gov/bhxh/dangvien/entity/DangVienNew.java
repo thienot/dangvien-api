@@ -37,8 +37,8 @@ public class DangVienNew {
     @SequenceGenerator(name = "dsDangVienNewSeq", sequenceName = "DS_DANG_VIEN_NEW_SEQ", allocationSize = 1)
     private Long id;
 
-    @Column(name = "BATCH_ID", nullable = false, length = 100)
-    private String batchId;
+    @Column(name = "BATCH_ID", nullable = false)
+    private Long batchId;
 
     @Column(name = "SOCCCD", nullable = false, unique = true, length = 12)
     private String socccd;

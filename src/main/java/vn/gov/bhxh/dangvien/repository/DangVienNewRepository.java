@@ -27,7 +27,7 @@ public interface DangVienNewRepository extends JpaRepository<DangVienNew, Long> 
           INSERT (ID, BATCH_ID, SOCCCD, HOTEN, NGAYSINH, GIOITINH, CREATED_AT)
           VALUES (DS_DANG_VIEN_NEW_SEQ.NEXTVAL, :batchId, :socccd, :hoten, :ngaySinh, :gioiTinh, SYSTIMESTAMP)
         """, nativeQuery = true)
-    int mergeDangVien(@Param("batchId") String batchId,
+    int mergeDangVien(@Param("batchId") Long batchId,
                       @Param("socccd") String socccd,
                       @Param("hoten") String hoten,
                       @Param("ngaySinh") LocalDate ngaySinh,

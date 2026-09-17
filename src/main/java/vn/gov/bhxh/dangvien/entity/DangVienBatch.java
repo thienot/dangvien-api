@@ -4,8 +4,11 @@ import java.time.OffsetDateTime;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 
 import lombok.AllArgsConstructor;
@@ -24,7 +27,12 @@ import lombok.Setter;
 public class DangVienBatch {
 
     @Id
-    @Column(name = "BATCH_ID", nullable = false, length = 100)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "dsDangVienBatchSeq")
+    @SequenceGenerator(name = "dsDangVienBatchSeq", sequenceName = "DS_DANG_VIEN_BATCH_SEQ", allocationSize = 1)
+    @Column(name = "ID")
+    private Long id;
+
+    @Column(name = "BATCH_ID", nullable = false, unique = true, length = 100)
     private String batchId;
 
     @Column(name = "NGAY_CAP_NHAT", nullable = false)

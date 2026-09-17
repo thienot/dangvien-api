@@ -57,8 +57,8 @@ public class DangVienService {
                     400);
         }
 
-        // Kiem tra tren bang master DS_DANG_VIEN_BATCH -> O(1) theo PK, khong lo mat dau batch
-        if (batchRepository.existsById(request.getBatchId())) {
+        // Kiem tra tren bang master DS_DANG_VIEN_BATCH -> O(1) theo UK BATCH_ID, khong lo mat dau batch
+        if (batchRepository.existsByBatchId(request.getBatchId())) {
             log.warn("[DONG-BO-MOI] Tu choi batchId={} | Ly do: BATCH_CONFLICT - batch_id da tung duoc tiep nhan truoc do",
                     request.getBatchId());
             throw new ApiException("BATCH_CONFLICT",
@@ -68,7 +68,7 @@ public class DangVienService {
 
         String requestId = UUID.randomUUID().toString();
 
-        // Luu truoc ban ghi Batch voi trang thai PROCESSING de thoa man khoa ngoai FK_DS_DANG_VIEN_NEW_BATCH
+        // Luu truoc ban ghi Batch voi trang thai PROCESSING de lay ID tu dong tang thoa man khoa ngoai
         DangVienBatch batch = DangVienBatch.builder()
                 .batchId(request.getBatchId())
                 .ngayCapNhat(request.getNgayCapNhat())
@@ -80,7 +80,8 @@ public class DangVienService {
                 .duplicateRecords(0)
                 .existingRecords(0)
                 .build();
-        batchRepository.saveAndFlush(batch);
+        batch = batchRepository.saveAndFlush(batch);
+        Long batchIdPk = batch.getId();
 
         List<ResultItemResponse> results = new ArrayList<>(request.getData().size());
         Set<String> seenInBatch = new HashSet<>();
@@ -117,11 +118,11 @@ public class DangVienService {
                 continue;
             }
 
-            // Thuc hien atomic MERGE INTO (bang con DS_DANG_VIEN_NEW da co FK tro ve DS_DANG_VIEN_BATCH):
+            // Thuc hien atomic MERGE INTO (bang con DS_DANG_VIEN_NEW truyen khoa ngoai BATCH_ID so nguyen):
             // - Tra ve 1: them moi thanh cong (ACCEPTED)
             // - Tra ve 0: CCCD da ton tai tu truoc (EXISTING)
             int rowsAffected = repository.mergeDangVien(
-                    request.getBatchId(),
+                    batchIdPk,
                     socccd,
                     item.getHoten(),
                     ngaySinh,
