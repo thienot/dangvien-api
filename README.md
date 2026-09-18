@@ -1,6 +1,274 @@
 # dangvien-api
+REST API nội bộ tiếp nhận và đồng bộ dữ liệu **Đảng viên mới** từ hệ thống VPTWĐ vào hệ thống BHXH.
 
-API BHXH tiếp nhận danh sách đảng viên mới từ VPTWĐ (`POST /api/v1/dangvien/dongbo-moi`).
+API cung cấp endpoint để VPTWĐ gửi dữ liệu Đảng viên mới theo từng batch. Hệ thống thực hiện xác thực request, kiểm tra dữ liệu đầu vào, phát hiện dữ liệu trùng trong cùng batch, kiểm tra dữ liệu đã tồn tại và ghi nhận dữ liệu hợp lệ vào Oracle.
+
+API xử lý theo cơ chế **synchronous request** và trả kết quả ngay sau khi hoàn tất việc tiếp nhận/xử lý batch.
+
+## Tech stack
+
+|                 |                                                                            |
+| --------------- | -------------------------------------------------------------------------- |
+| Language        | Java 21                                                                    |
+| Framework       | Spring Boot                                                                |
+| Database        | Oracle + Spring Data JPA / Hibernate                                       |
+| Database Driver | Oracle JDBC (`ojdbc11`)                                                    |
+| Security        | Spring Security — stateless, xác thực bằng `Authorization: Bearer <token>` |
+| API             | REST API                                                                   |
+| Validation      | Jakarta Bean Validation                                                    |
+| Resilience      | Resilience4j — Rate Limiter + Circuit Breaker                              |
+| Monitoring      | Spring Boot Actuator                                                       |
+| Port            | **8080**                                                                   |
+
+## API
+
+### Đồng bộ Đảng viên mới
+
+```http
+POST /api/v1/dangvien/dongbo-moi
+```
+
+API được VPTWĐ chủ động gọi để gửi danh sách Đảng viên mới sang hệ thống BHXH.
+
+### Request headers
+
+| Header          | Required | Description                                                         |
+| --------------- | -------- | ------------------------------------------------------------------- |
+| `Authorization` | Yes      | Bearer token dùng để xác thực request                               |
+| `Content-Type`  | Yes      | `application/json`                                                  |
+| `X-Request-Id`  | No       | Request ID do phía client gửi, dùng cho correlation/tracing nếu cần |
+| `X-Client-Id`   | No       | Định danh client                                                    |
+
+### Request body
+
+Request gồm:
+
+* `batch_id`: mã batch, bắt buộc và phải unique trên toàn hệ thống.
+* `ngay_cap_nhat`: thời điểm cập nhật dữ liệu, định dạng ISO-8601 có offset.
+* `data`: danh sách Đảng viên, bắt buộc và tối đa **1000 records/batch**.
+
+Mỗi record gồm:
+
+| Field      | Required | Rule                                       |
+| ---------- | -------- | ------------------------------------------ |
+| `socccd`   | Yes      | Đúng 12 chữ số                             |
+| `hoten`    | Yes      | Họ và tên                                  |
+| `ngaysinh` | Yes      | `yyyy-MM-dd`, năm từ 1900 đến năm hiện tại |
+| `gioitinh` | No       | Chỉ nhận `"0"` hoặc `"1"`                  |
+
+## Business processing
+
+Sau khi nhận request, hệ thống thực hiện các bước chính:
+
+```text
+Client / VPTWĐ
+      |
+      v
+Authentication
+      |
+      v
+Request Validation
+      |
+      v
+Batch ID Validation
+      |
+      v
+Check Duplicate In Batch
+      |
+      v
+Check Existing Data
+      |
+      v
+Persist Valid Records
+      |
+      v
+Build Response
+      |
+      v
+HTTP 202 Accepted
+```
+
+### Kết quả xử lý từng record
+
+Mỗi record trong `data[]` được trả về kết quả theo đúng thứ tự input:
+
+| Status     | Ý nghĩa                                    |
+| ---------- | ------------------------------------------ |
+| `ACCEPTED` | Dữ liệu hợp lệ và được tiếp nhận           |
+| `REJECTED` | Dữ liệu không hợp lệ                       |
+| `EXISTING` | `SOCCCD` đã tồn tại trong dữ liệu hệ thống |
+
+Các lỗi chính:
+
+| Error code           | Ý nghĩa                                 |
+| -------------------- | --------------------------------------- |
+| `INVALID_SOCCCD`     | `SOCCCD` không đúng định dạng 12 chữ số |
+| `INVALID_DATA`       | Dữ liệu record không hợp lệ             |
+| `DUPLICATE_IN_BATCH` | `SOCCCD` bị trùng trong cùng batch      |
+| `ALREADY_EXISTS`     | `SOCCCD` đã tồn tại                     |
+
+Đối với duplicate trong cùng batch, **record xuất hiện đầu tiên được xử lý trước; các record trùng phía sau bị đánh dấu `DUPLICATE_IN_BATCH`**.
+
+## HTTP Response
+
+Với request có cấu trúc hợp lệ, API trả:
+
+```http
+202 Accepted
+```
+
+Response chứa các thông tin tổng hợp:
+
+| Field               | Description                                        |
+| ------------------- | -------------------------------------------------- |
+| `batch_id`          | Mã batch của request                               |
+| `status`            | Trạng thái tiếp nhận batch, hiện tại là `RECEIVED` |
+| `total_records`     | Tổng số records trong request                      |
+| `accepted_records`  | Số records ACCEPTED                                |
+| `invalid_records`   | Số records REJECTED                                |
+| `duplicate_records` | Số records duplicate trong batch                   |
+| `existing_records`  | Số records đã tồn tại                              |
+| `request_id`        | Request ID do hệ thống BHXH sinh                   |
+| `results`           | Kết quả xử lý từng record                          |
+
+`results[]` được trả về **theo đúng thứ tự của `data[]` trong request**.
+
+## Error handling
+
+Các lỗi ở cấp request:
+
+| HTTP Status | Error Code        | Trường hợp                                                         |
+| ----------- | ----------------- | ------------------------------------------------------------------ |
+| `400`       | `INVALID_REQUEST` | JSON không hợp lệ, thiếu field bắt buộc, vượt quá 1000 records,... |
+| `401`       | `UNAUTHORIZED`    | Thiếu hoặc sai Bearer token                                        |
+| `403`       | `FORBIDDEN`       | Dành cho cơ chế IP restriction                                     |
+| `409`       | `BATCH_CONFLICT`  | `batch_id` đã được nhận trước đó                                   |
+| `500`       | `INTERNAL_ERROR`  | Lỗi hệ thống                                                       |
+
+## Bảo mật
+
+API sử dụng **stateless authentication** thông qua HTTP header:
+
+```http
+Authorization: Bearer <token>
+```
+
+Các request tới API phải được xác thực trước khi thực hiện business processing.
+
+Token được cấu hình thông qua application configuration/environment variable thay vì hard-code khi triển khai production.
+
+> Lưu ý: giá trị token mặc định trong môi trường local/dev không được sử dụng cho production.
+
+## Resilience
+
+API sử dụng Resilience4j để kiểm soát traffic và bảo vệ hệ thống khi downstream/database có dấu hiệu quá tải hoặc lỗi.
+
+### Rate Limiter
+
+Rate Limiter hiện tại được cấu hình:
+
+```yaml
+limit-for-period: 20
+limit-refresh-period: 60s
+timeout-duration: 0s
+```
+
+Ý nghĩa:
+
+* Cho phép tối đa **20 requests trong mỗi 60 giây trên mỗi instance**.
+* Request vượt quá giới hạn bị từ chối ngay.
+* `timeout-duration: 0s` nghĩa là không xếp request vào hàng đợi để chờ quota.
+* Giá trị rate limit có thể cấu hình thông qua environment variable `RATE_LIMIT_PER_MINUTE`.
+
+### Circuit Breaker
+
+Circuit Breaker theo dõi trạng thái xử lý của API:
+
+```text
+CLOSED
+   |
+   | Failure / Slow call vượt threshold
+   v
+ OPEN
+   |
+   | Sau 30s
+   v
+HALF_OPEN
+   |
+   | Trial calls
+   |
+   +---- Success ----> CLOSED
+   |
+   +---- Failure ----> OPEN
+```
+
+Configuration hiện tại:
+
+| Configuration             |    Value |
+| ------------------------- | -------: |
+| Sliding window            | 10 calls |
+| Minimum calls             |        5 |
+| Failure threshold         |      50% |
+| Slow call threshold       |      80% |
+| Slow call duration        |      10s |
+| Open state duration       |      30s |
+| Half-open permitted calls |        3 |
+
+Mục đích của hai cơ chế:
+
+* **Rate Limiter:** kiểm soát lượng request đi vào hệ thống.
+* **Circuit Breaker:** ngăn hệ thống tiếp tục gọi/xử lý khi dependency hoặc processing có dấu hiệu lỗi hoặc quá chậm.
+
+
+## Database
+
+Dữ liệu được lưu trữ trên Oracle thông qua:
+
+```text
+Spring Data JPA
+       |
+   Hibernate
+       |
+   Oracle JDBC
+       |
+     Oracle
+```
+
+Database chịu trách nhiệm bảo vệ các constraint quan trọng, đặc biệt đối với dữ liệu có yêu cầu unique.
+
+Trong trường hợp concurrent request cùng gửi một `SOCCCD`, database constraint được sử dụng như một lớp bảo vệ consistency cuối cùng. Application cần xử lý phù hợp trường hợp unique constraint violation thay vì coi mọi `ORA-00001` là cùng một loại lỗi nghiệp vụ.
+
+## Validation & duplicate handling
+
+API thực hiện validation ở nhiều mức:
+
+```text
+Request validation
+      |
+      +-- batch_id
+      +-- ngay_cap_nhat
+      +-- data size <= 1000
+      |
+      v
+Record validation
+      |
+      +-- SOCCCD
+      +-- Họ tên
+      +-- Ngày sinh
+      +-- Giới tính
+      |
+      v
+Duplicate detection
+      |
+      +-- Duplicate trong cùng batch
+      +-- Existing data
+      |
+      v
+Database constraint
+```
+
+Việc kiểm tra duplicate trong batch được thực hiện trước khi persist để tránh xử lý lặp lại cùng một `SOCCCD`.
+
 
 ## 1. Chuẩn bị Oracle
 
@@ -58,6 +326,8 @@ Gọi lại đúng `batch_id` trên lần nữa → HTTP 409 `BATCH_CONFLICT`.
 - **Khử hoàn toàn Race Condition `socccd`**: Chuyển sang cơ chế atomic `MERGE INTO` trong Oracle DB. Khi 2 request đồng thời chứa cùng `socccd`, request sau tự động nhận `EXISTING` (0 rows affected) mà không bị văng lỗi ORA-00001 (500 INTERNAL_ERROR).
 - **Mô hình Master-Detail quản lý Batch (`DS_DANG_VIEN_BATCH`)**: Tách bảng quản lý lô riêng biệt. Kiểm tra trùng `batch_id` trực tiếp trên Primary Key của bảng batch với độ phức tạp O(1), đảm bảo lưu vết 100% mọi đợt tiếp nhận (kể cả lô toàn bộ bản ghi bị REJECTED) và triệt tiêu vấn đề phình index trên bảng chi tiết đảng viên.
 - **Bảo mật & Logging**: Chuẩn hóa so sánh token bằng `MessageDigest.isEqual` chống Timing Attack, bổ sung log có cấu trúc chuẩn tag `[DONG-BO-MOI]` và `[AUTH]` ghi nhận IP client.
+
+
 ## 🧪 Test Cases — API `/api/v1/dangvien/dongbo-moi`
 
 > Môi trường test: `localhost:8080` | Token: `Bearer 33bdfccc-9046-488a-b2f0-2e503df74b1e`
