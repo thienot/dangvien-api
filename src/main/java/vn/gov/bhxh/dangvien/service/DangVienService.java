@@ -143,13 +143,25 @@ public class DangVienService {
                     existing++;
                 }
             } catch (DataIntegrityViolationException ex) {
-                // Race condition cuc hiem: 2 request dong thoi merge cung socccd chua ton tai
-                // -> ORA-00001. Transaction rieng cua dong nay da bi rollback, log lai va tiep tuc voi dong tiep theo.
-                log.warn("[DONG-BO-MOI] Race-condition ORA-00001 batchId={} socccd={}: {}",
-                        request.getBatchId(), socccd, ex.getMessage());
-                results.add(new ResultItemResponse(socccd, "REJECTED", "MERGE_CONFLICT",
-                        "Xung dot du lieu khi ghi dong thoi, vui long gui lai ban ghi nay"));
-                mergeError++;
+                // Lay full message de kiem tra ten constraint
+                String exMsg = extractConstraintMessage(ex);
+
+                if (exMsg.contains("UK_DS_DANG_VIEN_NEW_SOCCCD")) {
+                    // Race condition cuc hiem: 2 request dong thoi merge cung socccd chua ton tai
+                    // -> ORA-00001 vi pham UK_DS_DANG_VIEN_NEW_SOCCCD.
+                    // Transaction rieng cua dong nay da bi rollback, tiep tuc vong lap.
+                    log.warn("[DONG-BO-MOI] Race-condition ORA-00001 (UK_SOCCCD) batchId={} socccd={}: {}",
+                            request.getBatchId(), socccd, exMsg);
+                    results.add(new ResultItemResponse(socccd, "REJECTED", "MERGE_CONFLICT",
+                            "Xung dot du lieu khi ghi dong thoi, vui long gui lai ban ghi nay"));
+                    mergeError++;
+                } else {
+                    // Loi constraint KHAC (vi pham FK, loi data...) -> khong che giau, nem tiep len
+                    // GlobalExceptionHandler se bat, log, tra 500 INTERNAL_ERROR
+                    log.error("[DONG-BO-MOI] Unexpected constraint violation batchId={} socccd={}: {}",
+                            request.getBatchId(), socccd, exMsg, ex);
+                    throw ex;
+                }
             }
         }
 
@@ -207,5 +219,20 @@ public class DangVienService {
             return "gioitinh chi nhan gia tri '0' (Nu) hoac '1' (Nam)";
         }
         return null;
+    }
+
+    /**
+     * Lay full message tu DataIntegrityViolationException (bao gom root cause)
+     * de kiem tra dung ten constraint bi vi pham.
+     */
+    private String extractConstraintMessage(DataIntegrityViolationException ex) {
+        StringBuilder msg = new StringBuilder();
+        if (ex.getMessage() != null) {
+            msg.append(ex.getMessage());
+        }
+        if (ex.getRootCause() != null && ex.getRootCause().getMessage() != null) {
+            msg.append(" ").append(ex.getRootCause().getMessage());
+        }
+        return msg.toString().toUpperCase();
     }
 }

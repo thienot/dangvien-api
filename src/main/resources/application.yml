@@ -34,15 +34,57 @@ app:
 
 logging:
   level:
-    vn.gov.bhxh.dangvien: DEBUG
+    vn.gov.bhxh.dangvien: INFO   # Production: chi ghi INFO tro len, DEBUG se tao 1000 dong/request
+    org.springframework: WARN
+    org.hibernate.SQL: WARN
+
+# =====================================================================
+# Resilience4j - Bao ve API khi VPTWD gui qua nhieu request dong thoi
+# hoac Oracle qua tai.
+#
+# RateLimiter:    Gioi han 20 request/phut. VPTWD gui qua -> tra ngay
+#                 429 TOO_MANY_REQUESTS, tranh bao Oracle.
+# CircuitBreaker: Neu Oracle lien tuc loi (>50% trong 10 req cuoi)
+#                 -> ngat mach 30s, tra 503 SERVICE_UNAVAILABLE ngay
+#                    thay vi doi timeout 30 giay/request.
+# =====================================================================
+resilience4j:
+  ratelimiter:
+    instances:
+      dongBoMoiLimiter:
+        limit-for-period: ${RATE_LIMIT_PER_MINUTE:20}  # 20 request / refresh-period
+        limit-refresh-period: 60s                       # Reset counter moi 60 giay
+        timeout-duration: 0s                            # Tu choi ngay, khong xep hang cho
+        register-health-indicator: true
+
+  circuitbreaker:
+    instances:
+      dongBoMoiBreaker:
+        register-health-indicator: true
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10             # Xet 10 request gan nhat
+        minimum-number-of-calls: 5          # Can it nhat 5 request truoc khi kich hoat CB
+        failure-rate-threshold: 50          # >=50% that bai -> mo mach (OPEN)
+        slow-call-rate-threshold: 80        # >=80% request cham (>10s) -> cung mo mach
+        slow-call-duration-threshold: 10s   # Nguong coi la "request cham"
+        wait-duration-in-open-state: 30s    # Sau 30s: chuyen HALF-OPEN de thu lai
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
 
 # Cau hinh Actuator cho giam sat suc khoe he thong tren Production
 management:
   endpoints:
     web:
       exposure:
-        include: health, info, metrics
+        include: health, info, metrics, circuitbreakers, ratelimiters
   endpoint:
     health:
       show-details: when-authorized
-
+  health:
+    circuitbreakers:
+      enabled: true
+    ratelimiters:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
