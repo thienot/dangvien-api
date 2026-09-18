@@ -52,6 +52,18 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- Resilience4j: CircuitBreaker + RateLimiter bao ve API khi VPTWD gui qua nhieu request -->
+        <dependency>
+            <groupId>io.github.resilience4j</groupId>
+            <artifactId>resilience4j-spring-boot3</artifactId>
+            <version>2.2.0</version>
+        </dependency>
+        <!-- AOP bat buoc de @RateLimiter / @CircuitBreaker annotation hoat dong -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
