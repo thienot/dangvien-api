@@ -168,3 +168,79 @@ POST /api/v1/dangvien/dongbo-moi
 
 <img width="1920" height="1080" alt="Screenshot (672)" src="https://github.com/user-attachments/assets/b7272b53-195d-43ef-b00e-4f882b0c5372" />
 <img width="1920" height="1080" alt="Screenshot (673)" src="https://github.com/user-attachments/assets/2398027a-62c9-4b1d-808f-1ceca977078a" />
+
+### Case 8 — 🔁 Trùng CCCD trong cùng batch → DUPLICATE_IN_BATCH
+**Mô tả:**
+Kiểm tra trường hợp cùng một `socccd` xuất hiện nhiều lần trong cùng một batch. Theo rule xử lý, lần xuất hiện đầu tiên được xử lý bình thường; các lần xuất hiện tiếp theo phải bị từ chối với `DUPLICATE_IN_BATCH`.
+Case này nhằm kiểm tra logic phát hiện duplicate **trong phạm vi một batch**, đồng thời xác nhận chỉ có một bản ghi hợp lệ được ghi vào DB.
+**Expected:**
+| STT | CCCD           | Kết quả                           | Lý do                       |
+| --- | -------------- | --------------------------------- | --------------------------- |
+| 1   | `001234567896` | `ACCEPTED` ✅                      | Hợp lệ, xuất hiện lần đầu   |
+| 2   | `001234567896` | `REJECTED / DUPLICATE_IN_BATCH` ❌ | Trùng CCCD trong cùng batch |
+**Screenshot:**
+<img width="1920" height="1080" alt="Screenshot (693)" src="https://github.com/user-attachments/assets/9f5be420-19c8-4355-be9f-fd3872b7a8b1" />
+<img width="1920" height="1080" alt="Screenshot (694)" src="https://github.com/user-attachments/assets/e5123f20-01b7-4fc7-8707-52bde9aeba76" />
+
+### Case 9 — ❌ CCCD không hợp lệ → INVALID_SOCCCD
+**Mô tả:**
+Kiểm tra validation đối với trường `socccd`. CCCD phải có đúng 12 chữ số. Record có CCCD không hợp lệ phải bị `REJECTED / INVALID_SOCCCD`, trong khi các record hợp lệ khác trong cùng batch vẫn được xử lý bình thường.
+Case này kiểm tra khả năng xử lý **partial result trong một batch**, đảm bảo một record invalid không làm thất bại toàn bộ request.
+**Expected:**
+| STT | CCCD           | Kết quả                       | Lý do                       |
+| --- | -------------- | ----------------------------- | --------------------------- |
+| 1   | `12345`        | `REJECTED / INVALID_SOCCCD` ❌ | Không đủ 12 chữ số          |
+| 2   | `001234567897` | `ACCEPTED` ✅                  | CCCD hợp lệ và chưa tồn tại |
+**Screenshot:**
+<img width="1920" height="1080" alt="Screenshot (695)" src="https://github.com/user-attachments/assets/36b933d7-70a0-488e-b925-49f80d9707ba" />
+<img width="1920" height="1080" alt="Screenshot (696)" src="https://github.com/user-attachments/assets/99db248f-1534-4c6e-858d-fd889adf6c67" />
+
+### Case 10 — ❌ Ngày sinh không hợp lệ → INVALID_DATA
+**Mô tả:**
+Kiểm tra validation đối với trường `ngaysinh`. Ngày sinh phải đúng định dạng `yyyy-MM-dd` và phải là ngày hợp lệ. Ví dụ `30/02/1990` không tồn tại nên record phải bị từ chối với `INVALID_DATA`.
+Case này đồng thời kiểm tra rằng record hợp lệ khác trong cùng batch vẫn được xử lý.
+**Expected:**
+
+| STT | CCCD           | Kết quả                     | Lý do                           |
+| --- | -------------- | --------------------------- | ------------------------------- |
+| 1   | `001234567898` | `REJECTED / INVALID_DATA` ❌ | Ngày `30/02/1990` không tồn tại |
+| 2   | `001234567899` | `ACCEPTED` ✅                | Ngày sinh hợp lệ                |
+
+**Screenshot**
+<img width="1920" height="1080" alt="Screenshot (697)" src="https://github.com/user-attachments/assets/3400bf55-7604-425e-a8e3-12711bfd7772" />
+<img width="1920" height="1080" alt="Screenshot (698)" src="https://github.com/user-attachments/assets/8c7b6b9a-0961-46a1-be01-20a527e140b5" />
+
+### Case 11 — ❌ `gioitinh` không hợp lệ → INVALID_DATA
+**Mô tả:**
+Kiểm tra validation đối với trường `gioitinh`. Theo rule, giá trị được phép là `"0"` hoặc `"1"`. Giá trị `"2"` không hợp lệ và phải bị từ chối với `INVALID_DATA`.
+Case này đồng thời kiểm tra record hợp lệ trong cùng batch vẫn được xử lý độc lập.
+**Điều kiện:**
+* Sử dụng `batch_id` mới.
+* `001234567900` có `gioitinh = "2"` không hợp lệ.
+* `001234567901` có `gioitinh = "1"` hợp lệ và chưa tồn tại.
+**Expected:**
+| STT | CCCD           | Kết quả                     | Lý do                         |
+| --- | -------------- | --------------------------- | ----------------------------- |
+| 1   | `001234567900` | `REJECTED / INVALID_DATA` ❌ | `gioitinh = "2"` không hợp lệ |
+| 2   | `001234567901` | `ACCEPTED` ✅                | `gioitinh = "1"` hợp lệ       |
+**Screenshot:**
+<img width="1920" height="1080" alt="Screenshot (699)" src="https://github.com/user-attachments/assets/10a62e41-9518-4ab0-b6ad-d405546a9972" />
+<img width="1920" height="1080" alt="Screenshot (700)" src="https://github.com/user-attachments/assets/0ec33b8a-4467-4efd-97eb-139d28bcda68" />
+
+### Case 12 — ❌ Thiếu `batch_id` → INVALID_REQUEST
+**Mô tả:**
+Kiểm tra validation ở cấp độ **toàn bộ request** khi trường bắt buộc `batch_id` không được truyền.
+Khác với các case invalid record, đây không phải lỗi của một record riêng lẻ. Request phải bị từ chối ngay với `HTTP 400 / INVALID_REQUEST` và không được tạo batch hoặc ghi dữ liệu vào bảng chính.
+**Screenshot:**
+<img width="1920" height="1080" alt="Screenshot (701)" src="https://github.com/user-attachments/assets/951a8708-6eaf-4758-9378-c06f5e6d72e5" />
+
+
+### Case 13 — Hai request đồng thời cùng CCCD → kiểm tra Race Condition
+**Mô tả:**
+Kiểm tra trường hợp hai request khác nhau được gửi gần như đồng thời nhưng cùng chứa một `socccd`.
+
+Mục tiêu là kiểm tra tính nhất quán khi có concurrent request và xác nhận database constraint/business rule không cho phép tạo hai bản ghi cùng CCCD.
+**Screenshot cần chụp:**
+<img width="1920" height="1080" alt="Screenshot (702)" src="https://github.com/user-attachments/assets/d3de9793-6c59-4dac-8207-897efdd8d8d1" />
+<img width="1920" height="1080" alt="Screenshot (703)" src="https://github.com/user-attachments/assets/0a5b0a22-b2fb-414d-99b0-f11739745e9a" />
+<img width="1920" height="1080" alt="Screenshot (704)" src="https://github.com/user-attachments/assets/e00bf450-0018-4fd4-acfd-33f2ee76448b" />
